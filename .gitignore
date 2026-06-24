@@ -1,0 +1,35 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Sensitive - DO NOT COMMIT
+.env
+
+# Runtime data
+app_streamlit.log
+debug.log
+conversations/
+output/
+files/
+memory/chroma/
+memory/markdown/
+memory/documents.db
+memory/conversations/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large binaries - install via pip
+OCRmodel/*.whl
