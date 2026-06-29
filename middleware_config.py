@@ -103,30 +103,44 @@ def _build_fallback() -> list:
         except ImportError:
             pass
 
-        # 构造主模型（DeepSeek）
-        from langchain_openai import ChatOpenAI
-        api_key = os.getenv("DEEPSEEK_API_KEY", "")
-        if not api_key:
-            api_key = os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            logger.warning("[Fallback] 跳过（未配置 DEEPSEEK_API_KEY）")
+        from config import Config
+
+        # ── 主模型：复用统一配置（任意 OpenAI 兼容提供方）──
+        if not Config.LLM_API_KEY:
+            logger.warning(
+                "[Fallback] 跳过（未配置 LLM_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY）"
+            )
             return []
-        primary_llm = ChatOpenAI(
-            model=os.getenv("LLM_MODEL", "deepseek-chat"),
-            api_key=api_key,
-            base_url="https://api.deepseek.com/v1",
-            temperature=0.3,
-        )
-        # 构造备用模型（阿里云百炼 qwen-turbo）
-        from langchain_community.chat_models.tongyi import ChatTongyi
-        ds_key = os.getenv("DASHSCOPE_API_KEY", "")
-        if not ds_key:
-            logger.warning("[Fallback] 跳过（未配置 DASHSCOPE_API_KEY）")
+        primary_llm = Config.build_chat_openai()
+
+        # ── 备用模型 ──
+        fallback_api_key = Config.FALLBACK_API_KEY
+        fallback_model = Config.FALLBACK_MODEL
+        fallback_base_url = Config.FALLBACK_BASE_URL
+        if not fallback_api_key:
+            logger.warning("[Fallback] 跳过（未配置 FALLBACK_API_KEY / DASHSCOPE_API_KEY）")
             return []
-        fallback_llm = ChatTongyi(model="qwen-turbo", dashscope_api_key=ds_key)
+
+        if fallback_base_url:
+            from langchain_openai import ChatOpenAI
+            fallback_llm = ChatOpenAI(
+                model=fallback_model,
+                api_key=fallback_api_key,
+                base_url=fallback_base_url,
+                temperature=Config.LLM_TEMPERATURE,
+            )
+            logger.info(
+                f"[Fallback] 已启用: 主={Config.LLM_MODEL}, "
+                f"备用={fallback_model} (OpenAI 兼容: {fallback_base_url})"
+            )
+        else:
+            from langchain_community.chat_models.tongyi import ChatTongyi
+            fallback_llm = ChatTongyi(model=fallback_model, dashscope_api_key=fallback_api_key)
+            logger.info(
+                f"[Fallback] 已启用: 主={Config.LLM_MODEL}, 备用={fallback_model} (DashScope)"
+            )
 
         m = ModelFallbackMiddleware(primary_llm, fallback_llm)
-        logger.info(f"[Fallback] 已启用: 主=deepseek-chat, 备用=qwen-turbo")
         return [m]
     except Exception as e:
         logger.error(f"[Fallback] 创建失败: {e}")

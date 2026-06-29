@@ -25,6 +25,8 @@ try:
 except ImportError:
     pass
 
+from config import Config
+
 logger = logging.getLogger(__name__)
 
 # ========== 配置 ==========
@@ -33,8 +35,9 @@ CHUNK_SIZE = 600
 CHUNK_OVERLAP = 100
 # 中文优先分隔符：段落 → 换行 → 句末标点 → 逗号/分号 → 字符
 CHINESE_SEPARATORS = ["\n\n", "\n", "。", "！", "？", "，", "；", "  ", " ", ""]
-# 阿里云百炼 embedding（国内直连，中文质量好）
-EMBEDDING_MODEL = "text-embedding-v4"
+# Embedding 模型（默认阿里云百炼 text-embedding-v4，国内直连、中文质量好；
+# 设置 EMBEDDING_BASE_URL 后切换为任意 OpenAI 兼容 Embedding 提供方）
+EMBEDDING_MODEL = Config.EMBEDDING_MODEL
 TOP_K = 5
 # 相关性阈值（ChromaDB l2 distance，越小越相似）
 SCORE_THRESHOLD = 0.3
@@ -52,31 +55,50 @@ def set_conv_id(conv_id: str) -> None:
 
 
 def _get_embedding_model():
-    """延迟初始化阿里云百炼 embedding 模型（单例）。
+    """延迟初始化 embedding 模型（单例）。
 
-    使用 text-embedding-v4，国内直连，中文语义检索质量优秀。
-    需要设置环境变量 DASHSCOPE_API_KEY=你的百炼API-KEY。
+    提供方选择：
+    - 设置 EMBEDDING_BASE_URL → 任意 OpenAI 协议兼容 Embedding 提供方
+    - 未设置（默认）→ 阿里云百炼 DashScope 原生协议
     """
     global _embedding_model
     if _embedding_model is not None:
         return _embedding_model
 
-    try:
-        from langchain_community.embeddings import DashScopeEmbeddings
-    except ImportError:
-        raise ImportError(
-            "需要安装 dashscope:\n"
-            "  uv pip install dashscope"
+    api_key = Config.EMBEDDING_API_KEY
+    base_url = Config.EMBEDDING_BASE_URL
+    model = Config.EMBEDDING_MODEL
+
+    if not api_key:
+        raise ValueError(
+            "未配置 Embedding API Key。请设置 EMBEDDING_API_KEY"
+            "（或向后兼容的 DASHSCOPE_API_KEY）环境变量。"
         )
 
-    api_key = os.environ.get("DASHSCOPE_API_KEY", "")
-    if not api_key:
-        raise ValueError("请设置环境变量 DASHSCOPE_API_KEY=你的百炼API-KEY")
+    if base_url:
+        # OpenAI 协议兼容 Embedding 提供方
+        try:
+            from langchain_openai import OpenAIEmbeddings
+        except ImportError:
+            raise ImportError("需要安装 langchain-openai: uv pip install langchain-openai")
+        _embedding_model = OpenAIEmbeddings(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+        )
+        logger.info(f"[RAG] Embedding 使用 OpenAI 兼容提供方: model={model}, base_url={base_url}")
+    else:
+        # 阿里云百炼 DashScope 原生协议（默认）
+        try:
+            from langchain_community.embeddings import DashScopeEmbeddings
+        except ImportError:
+            raise ImportError("需要安装 dashscope: uv pip install dashscope")
+        _embedding_model = DashScopeEmbeddings(
+            model=model,
+            dashscope_api_key=api_key,
+        )
+        logger.info(f"[RAG] Embedding 使用 DashScope: model={model}")
 
-    _embedding_model = DashScopeEmbeddings(
-        model=EMBEDDING_MODEL,
-        dashscope_api_key=api_key,
-    )
     return _embedding_model
 
 

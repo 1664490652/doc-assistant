@@ -58,7 +58,18 @@ class LLMProcessor:
     
     def _init_llm(self):
         model_type = Config.LLM_MODEL
-        
+
+        # 优先走统一 OpenAI 兼容路径：配置了 LLM_BASE_URL 即用 ChatOpenAI，
+        # 适用于 DeepSeek / Qwen / Moonshot / SiliconFlow / Ollama / vLLM 等任意兼容提供方
+        if Config.LLM_BASE_URL:
+            if not Config.LLM_API_KEY:
+                raise ValueError(
+                    "已配置 LLM_BASE_URL，但未找到 API Key（请设置 "
+                    "LLM_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY）"
+                )
+            return Config.build_chat_openai()
+
+        # 未配置 base_url 的向后兼容路径（按模型名前缀分发）
         if model_type.startswith("gpt"):
             if not Config.OPENAI_API_KEY:
                 raise ValueError("使用OpenAI模型需要设置OPENAI_API_KEY环境变量")
@@ -80,7 +91,10 @@ class LLMProcessor:
             except ImportError:
                 raise ValueError("需要安装 langchain-deepseek 包以使用 DeepSeek 模型")
         else:
-            raise ValueError(f"不支持的模型类型: {model_type}")
+            raise ValueError(
+                f"不支持的模型类型: {model_type}。"
+                f"如需使用第三方提供方，请设置 LLM_BASE_URL 指向其 OpenAI 兼容端点。"
+            )
     
     def _init_agent_chain(self, tools: List[BaseTool]):
         """初始化工具调用代理链（自动模式）"""

@@ -4,11 +4,77 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
+    # ============================================================
+    # LLM 主模型统一配置（兼容任意 OpenAI 协议提供方）
+    # ------------------------------------------------------------
+    # 优先级：LLM_API_KEY + LLM_BASE_URL（显式配置）
+    #         > DEEPSEEK_API_KEY（向后兼容，自动补全 DeepSeek 端点）
+    #         > OPENAI_API_KEY（默认 OpenAI 官方端点）
+    # ============================================================
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-    LLM_MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
-    
+    LLM_API_KEY = (
+        os.getenv("LLM_API_KEY")
+        or DEEPSEEK_API_KEY
+        or OPENAI_API_KEY
+    )
+    LLM_BASE_URL = (
+        os.getenv("LLM_BASE_URL")
+        or ("https://api.deepseek.com/v1" if DEEPSEEK_API_KEY else None)
+    )
+    LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
+    LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
+
+    # ============================================================
+    # 备用模型配置（ModelFallback 中间件）
+    # ------------------------------------------------------------
+    # 默认走阿里云百炼 DashScope 原生协议（qwen-turbo）
+    # 设置 FALLBACK_BASE_URL 后切换为任意 OpenAI 兼容提供方
+    # ============================================================
+    FALLBACK_API_KEY = os.getenv("FALLBACK_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+    FALLBACK_BASE_URL = os.getenv("FALLBACK_BASE_URL")
+    FALLBACK_MODEL = os.getenv("MIDDLEWARE_FALLBACK_MODEL", "qwen-turbo")
+
+    # ============================================================
+    # Embedding 配置（RAG 引擎）
+    # ------------------------------------------------------------
+    # 默认走阿里云百炼 DashScope（text-embedding-v4，国内直连）
+    # 设置 EMBEDDING_BASE_URL 后切换为任意 OpenAI 兼容 Embedding
+    # ============================================================
+    EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+    EMBEDDING_BASE_URL = os.getenv("EMBEDDING_BASE_URL")
+    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-v4")
+
     ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.doc', '.txt', '.xlsx', '.xls', '.csv', '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff'}
+
+    # ============================================================
+    # 工厂方法
+    # ============================================================
+    @classmethod
+    def get_llm_config(cls):
+        """返回统一 LLM 配置 (api_key, base_url, model)，供各模块复用。"""
+        return cls.LLM_API_KEY, cls.LLM_BASE_URL, cls.LLM_MODEL
+
+    @classmethod
+    def build_chat_openai(cls, **overrides):
+        """构建 ChatOpenAI 实例，统一从配置读取。
+        适用于任意 OpenAI 协议兼容提供方。
+        """
+        if not cls.LLM_API_KEY:
+            raise ValueError(
+                "未配置 LLM API Key。请设置 LLM_API_KEY（或向后兼容的 "
+                "DEEPSEEK_API_KEY / OPENAI_API_KEY）环境变量。"
+            )
+        from langchain_openai import ChatOpenAI
+        kwargs = dict(
+            model=cls.LLM_MODEL,
+            api_key=cls.LLM_API_KEY,
+            temperature=cls.LLM_TEMPERATURE,
+        )
+        if cls.LLM_BASE_URL:
+            kwargs["base_url"] = cls.LLM_BASE_URL
+        kwargs.update(overrides)
+        return ChatOpenAI(**kwargs)
     
     # ========== 角色定义（System Prompt）==========
     SYSTEM_PROMPT = """
