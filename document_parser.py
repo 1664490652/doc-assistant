@@ -144,7 +144,7 @@ class DocumentParser:
     
     @staticmethod
     def _parse_docx(file_path):
-        """解析Word文档"""
+        """解析Word文档（含嵌入图片OCR）"""
         content = ""
         try:
             doc = docx.Document(file_path)
@@ -156,6 +156,30 @@ class DocumentParser:
                     for cell in row.cells:
                         content += cell.text + "\t"
                     content += "\n"
+
+            # 提取嵌入图片并 OCR
+            import tempfile
+            from paddle_ocr import ocr_image
+            image_count = 0
+            for rel in doc.part.rels.values():
+                if "image" not in rel.reltype:
+                    continue
+                try:
+                    image = rel.target_part
+                    suffix = os.path.splitext(image.partname)[1] or ".png"
+                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+                        f.write(image.blob)
+                        tmp_path = f.name
+                    ocr_text = ocr_image(tmp_path)
+                    os.unlink(tmp_path)
+                    if ocr_text.strip() and not ocr_text.startswith("[OCR错误"):
+                        image_count += 1
+                        content += "\n" + ocr_text.strip() + "\n"
+                except Exception:
+                    continue
+
+            if image_count > 0 and not content.strip():
+                content = f"(本文档仅有图片，已通过OCR提取 {image_count} 张图片文字)\n" + content
             return content.strip()
         except Exception as e:
             raise ValueError(f"解析Word文件失败: {str(e)}")

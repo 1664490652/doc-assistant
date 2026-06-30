@@ -225,7 +225,7 @@ task_type 可以是：
         try:
             # ═══ Step 1: 评估器 → JSON → Python 对象 ═══
             eval_prompt = _eval_prompt.format(
-                content=content[:4000],
+                content=content[:30000],
                 summary=summary,
             )
             raw = self.llm.invoke([HumanMessage(content=eval_prompt)])

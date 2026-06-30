@@ -33,3 +33,6 @@ Thumbs.db
 
 # Large binaries - install via pip
 OCRmodel/*.whl
+
+# Generated zip
+doc-assistant.zip

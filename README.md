@@ -4,7 +4,7 @@
 
 ## 环境要求
 
-- **Python ≥ 3.13**
+- **Python ≥ 3.12, < 3.14**
 - **uv** 包管理器：[安装指南](https://docs.astral.sh/uv/getting-started/installation/)
 
 ```bash
@@ -17,21 +17,28 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## 快速开始
 
-```bash
-# 1. 克隆仓库
-git clone <仓库地址>
-cd trae-proj1
+**方式一：一键安装（推荐）**
 
-# 2. 安装依赖
+右键 `setup.ps1` → "使用 PowerShell 运行"，脚本会自动：
+1. 安装 uv 包管理器（如未安装）
+2. 安装所有 Python 依赖
+3. 检测 onnxruntime 是否正常（如失败会提示安装 VC++ 运行库）
+
+**方式二：手动安装**
+
+```bash
+# 1. 安装依赖
 uv sync
 
-# 3. 配置 API Key
+# 2. 配置 API Key
 cp .env.example .env
 # 编辑 .env，填入你的 DeepSeek 和 DashScope API Key
 
-# 4. 启动
+# 3. 启动
 uv run streamlit run app_streamlit.py
 ```
+
+> **Windows 用户注意**：如果启动报 `onnxruntime DLL load failed`，请安装 [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) 后重试。
 
 浏览器打开 `http://localhost:8501` 即可使用。
 
@@ -47,7 +54,7 @@ uv run streamlit run app_streamlit.py
 ## 项目结构
 
 ```
-trae-proj1/
+doc-assistant/
 ├── app_streamlit.py      # Streamlit 主应用（UI + Agent 调度）
 ├── agent_graph.py        # LangGraph Agent 图管管理
 ├── llm_processor.py      # LLM 调用封装（摘要 / 对比 / 评估修正）
@@ -55,8 +62,8 @@ trae-proj1/
 ├── rag_engine.py         # ChromaDB 向量检索引擎
 ├── memory_tree.py        # SQLite 长期记忆存储
 ├── middleware_config.py  # 中间件配置（Fallback / PII / HITL）
-├── document_parser.py    # 文档解析（pdfplumber + PaddleOCR 回退）
-├── paddle_ocr.py         # PaddleOCR 引擎封装
+├── document_parser.py    # 文档解析（pdfplumber + RapidOCR 回退）
+├── paddle_ocr.py         # RapidOCR 引擎封装（ONNX Runtime）
 ├── config.py             # 全局配置加载
 ├── pyproject.toml        # 项目元数据与依赖
 ├── uv.lock               # 依赖锁文件
@@ -74,14 +81,12 @@ trae-proj1/
 
 ## 常见问题
 
-**Q: 启动报 `paddle_ocr` 相关错误？**
+**Q: 启动报 OCR 相关错误？**
 
-A: OCR 功能是可选的，不影响正常使用。如需启用：
+A: OCR 基于 RapidOCR（ONNX Runtime），首次运行会自动下载模型文件（~50MB）。如果下载失败，检查网络或手动安装：
 ```bash
-uv pip install paddlepaddle
-uv pip install paddleocr
+uv pip install rapidocr-onnxruntime onnxruntime
 ```
-如果 paddlepaddle 安装失败，去 https://www.paddlepaddle.org.cn/ 选择对应系统的版本。
 
 **Q: Memory Tree 加载失败？**
 

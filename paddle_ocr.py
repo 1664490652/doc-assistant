@@ -1,20 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-OCR 模块（PaddleOCR 引擎）
-使用 PaddleOCR 3.x 进行中文 + 英文的 OCR 识别。
+OCR 模块（RapidOCR 引擎，基于 ONNX Runtime）
 """
 
 import io
 import os
 import re
-import tempfile
+
 import numpy as np
 from PIL import Image
 
 
 class PaddleOCREngine:
-    """PaddleOCR 单例引擎，首次调用时加载模型"""
-
+    """OCR 引擎（名称保持兼容，实际使用 RapidOCR）"""
     _instance = None
     _ocr = None
 
@@ -24,42 +22,28 @@ class PaddleOCREngine:
         return cls._instance
 
     def _ensure_loaded(self):
-        """延迟加载模型（首次调用时加载），自动检测 GPU"""
         if self._ocr is not None:
             return
         try:
-            from paddleocr import PaddleOCR
-            import paddle
-
-            # 检测 GPU 是否可用
-            gpu_available = paddle.is_compiled_with_cuda()
-            device = "gpu" if gpu_available else "cpu"
-            if gpu_available:
-                print(f"[INFO] PaddleOCR 检测到 GPU，启用 CUDA 加速")
-            else:
-                print(f"[INFO] PaddleOCR 未检测到 GPU，使用 CPU 推理")
-
-            self._ocr = PaddleOCR(lang='ch', use_angle_cls=False, device=device)
-            print(f"[INFO] PaddleOCR 模型加载成功 (device={device})")
-        except ImportError:
+            from rapidocr_onnxruntime import RapidOCR
+            self._ocr = RapidOCR()
+            print("[INFO] RapidOCR 模型加载成功 (ONNX Runtime)")
+        except ImportError as e:
             raise ImportError(
-                "PaddleOCR 未安装，请运行: uv pip install paddleocr paddlepaddle"
+                f"RapidOCR 未正确安装: {e}\n"
+                f"请运行: uv sync"
             )
 
     def ocr_image(self, image_path: str) -> str:
-        """对单张图片执行 OCR，返回纯文本"""
         self._ensure_loaded()
-
         try:
-            result = self._ocr.predict(image_path)
+            result, _ = self._ocr(image_path)
             return self._extract_text(result)
         except Exception as e:
             return f"[OCR错误: {str(e)}]"
 
     def ocr_pdf(self, pdf_path: str) -> str:
-        """对 PDF 执行 OCR（逐页渲染为图片后识别）"""
         self._ensure_loaded()
-
         try:
             import fitz
         except ImportError:
@@ -69,44 +53,40 @@ class PaddleOCREngine:
         all_lines = []
 
         for i, page in enumerate(doc):
-            pix = page.get_pixmap(dpi=150)  # 降低 DPI 避免推理引擎内存不足
-            tmp_path = os.path.join(tempfile.gettempdir(), f"paddle_tmp_{i}.png")
-            pix.save(tmp_path)
+            # 按最大 2000px 计算 DPI，避免超大图拖慢推理
+            page_rect = page.rect
+            max_dim = max(page_rect.width, page_rect.height)
+            dpi = min(150, int(2000 * 72 / max_dim))  # 72 points per inch
 
-            # 限制图片尺寸，避免推理引擎崩溃
-            img = Image.open(tmp_path)
-            w, h = img.size
-            if w > 2000 or h > 2000:
-                scale = min(2000 / w, 2000 / h)
-                img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-                img.save(tmp_path)
+            pix = page.get_pixmap(dpi=dpi)
+            # 直接转 numpy 数组传给 RapidOCR，不落盘
+            img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                pix.height, pix.width, pix.n
+            )
 
             try:
-                result = self._ocr.ocr(tmp_path)
+                result, _ = self._ocr(img_array)
                 text = self._extract_text(result)
                 if text:
                     all_lines.append(text)
-            finally:
-                try:
-                    os.remove(tmp_path)
-                except:
-                    pass
-            print(f"[INFO] PaddleOCR PDF 第 {i+1}/{len(doc)} 页完成")
+            except Exception as e:
+                print(f"[WARN] OCR 第 {i + 1} 页失败: {e}")
 
+            print(f"[INFO] OCR PDF 第 {i + 1}/{len(doc)} 页完成")
+
+        doc.close()
         return "\n".join(all_lines)
 
-    @staticmethod
-    def _extract_text(ocr_result) -> str:
-        """从 PaddleOCR 3.x 结果中提取纯文本"""
-        if not ocr_result:
+    def _extract_text(self, result) -> str:
+        """从 RapidOCR 结果中提取文字。
+        RapidOCR 返回格式: [[box, text, score], ...] 或 None
+        """
+        if result is None:
             return ""
-
         lines = []
-        for page in ocr_result:
-            if not isinstance(page, dict):
-                continue
-            rec_texts = page.get("rec_texts", [])
-            for text in rec_texts:
+        for item in result:
+            if len(item) >= 2:
+                text = item[1]
                 text = PaddleOCREngine._clean_text(text)
                 if text:
                     lines.append(text)
@@ -114,23 +94,15 @@ class PaddleOCREngine:
 
     @staticmethod
     def _clean_text(text: str) -> str:
-        """后处理清洗：去除多余空格、修复数字串"""
         if not text:
             return ""
-
         text = text.strip()
-
-        # 修复数字/字母串中被错误插入的空格
-        # 例如 "SS33 2233004477009900" → "SS332233004477009900"
         text = re.sub(r'(?<=[A-Za-z0-9])\s+(?=[A-Za-z0-9])', '', text)
-
-        # 去除连续空格
         text = ' '.join(text.split())
-
         return text
 
 
-# 便捷函数
+# ── 便捷函数 ──
 def ocr_image(image_path: str) -> str:
     return PaddleOCREngine().ocr_image(image_path)
 
