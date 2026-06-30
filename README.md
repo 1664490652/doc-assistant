@@ -2,6 +2,8 @@
 
 基于 LangChain + Streamlit 的多智能体文档分析系统，支持 PDF/Word/Excel 解析、RAG 检索、文档对比、长期记忆管理。
 
+> **GitHub**: https://github.com/1664490652/doc-assistant
+
 ## 环境要求
 
 - **Python ≥ 3.12, < 3.14**
